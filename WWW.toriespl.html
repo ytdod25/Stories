@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stories</title>
+<style>
+  body { font-family: Arial, sans-serif; margin:0; background:#f2f2f2; }
+  header { background:#4A90E2; color:white; padding:10px 20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  header h1 { margin:0; cursor:pointer; }
+  nav button { margin-left:10px; padding:5px 10px; cursor:pointer; }
+  header input { margin-left:10px; padding:5px; flex-grow:1; max-width:200px; }
+  .hidden { display:none; }
+  .container { max-width:600px; margin:20px auto; }
+  .post, .comment { background:#fff; padding:10px; margin-bottom:10px; border-radius:8px; }
+  .post img, .post video, .profile-pic { max-width:100%; border-radius:50%; }
+  .add-post input[type="text"], .add-post input[type="file"], .profile-edit input[type="file"] { width: calc(100% - 20px); margin-bottom:5px; padding:5px; }
+  .add-post button, .post button, .profile-edit button { padding:5px 10px; margin-top:5px; cursor:pointer; }
+  .like-btn { cursor:pointer; color:#007BFF; border:none; background:none; padding:0; margin-top:5px; }
+  .followers-list, .following-list { list-style:none; padding:0; margin:5px 0; }
+  .user-link { color:#007BFF; cursor:pointer; text-decoration:underline; margin-left:5px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 onclick="showTab('feedTab')">Stories</h1>
+  <input type="text" id="searchInput" placeholder="Szukaj..." oninput="searchUsers()">
+  <nav>
+    <button id="loginBtn" onclick="showTab('loginTab')">Zaloguj / Zarejestruj</button>
+    <button id="logoutBtn" onclick="logout()" class="hidden">Wyloguj</button>
+    <button onclick="showTab('feedTab')">Strona główna</button>
+    <button onclick="showTab('profileTab')">Profil</button>
+  </nav>
+</header>
+
+<div class="container" id="loginTab">
+  <h2>Logowanie / Rejestracja</h2>
+  <input type="text" id="username" placeholder="Nazwa użytkownika">
+  <input type="password" id="password" placeholder="Hasło">
+  <button onclick="login()">Zaloguj / Zarejestruj</button>
+</div>
+
+<div class="container hidden" id="feedTab">
+  <h2>Strona główna</h2>
+  <div class="add-post">
+    <input type="text" id="postText" placeholder="Co słychać?">
+    <input type="file" id="postFile" accept="image/*,video/*">
+    <button onclick="addPost()">Dodaj post</button>
+  </div>
+  <div id="postsContainer"></div>
+</div>
+
+<div class="container hidden" id="profileTab">
+  <h2>Profil <span id="profileName"></span></h2>
+  <div class="profile-edit">
+    <img id="profilePic" class="profile-pic" src="" alt="Profilowe" width="80" height="80">
+    <input type="file" id="profilePicInput" accept="image/*">
+    <button onclick="changeProfilePic()">Zmień zdjęcie profilowe</button>
+  </div>
+  <p>Obserwujący: <span id="followersCount"></span> <button onclick="toggleFollowers()">Pokaż</button></p>
+  <ul id="followersList" class="followers-list hidden"></ul>
+  <p>Obserwowani: <span id="followingCount"></span> <button onclick="toggleFollowing()">Pokaż</button></p>
+  <ul id="followingList" class="following-list hidden"></ul>
+  <h3>Posty</h3>
+  <div id="profilePosts"></div>
+</div>
+
+<script>
+let users = {};
+let posts = [];
+let currentUser = null;
+let viewingProfile = null;
+
+function login(){
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  if(!username || !password) return alert('Podaj nazwę użytkownika i hasło');
+
+  if(!users[username]){
+    users[username] = { password, profilePic:'', followers:[], following:[] };
+  } else if(users[username].password !== password){
+    return alert('Nieprawidłowe hasło!');
+  }
+
+  currentUser = username;
+  viewingProfile = username;
+  document.getElementById('loginBtn').classList.add('hidden');
+  document.getElementById('logoutBtn').classList.remove('hidden');
+  showTab('feedTab');
+  renderProfile(viewingProfile);
+  renderPosts();
+}
+
+function logout(){
+  currentUser = null;
+  viewingProfile = null;
+  document.getElementById('loginBtn').classList.remove('hidden');
+  document.getElementById('logoutBtn').classList.add('hidden');
+  showTab('loginTab');
+}
+
+function showTab(tabId){
+  document.querySelectorAll('.container').forEach(c => c.classList.add('hidden'));
+  document.getElementById(tabId).classList.remove('hidden');
+  if(tabId==='profileTab') renderProfile(viewingProfile);
+  if(tabId==='feedTab') renderPosts();
+}
+
+function addPost(){
+  if(!currentUser) return alert('Musisz być zalogowany');
+  const text = document.getElementById('postText').value.trim();
+  const fileInput = document.getElementById('postFile');
+  let imageUrl = '';
+  let videoUrl = '';
+
+  if(fileInput.files[0]){
+    const reader = new FileReader();
+    reader.onload = function(e){
+      if(fileInput.files[0].type.startsWith('image/')){
+        imageUrl = e.target.result;
+      } else if(fileInput.files[0].type.startsWith('video/')){
+        videoUrl = e.target.result;
+      }
+      createPost();
+    }
+    reader.readAsDataURL(fileInput.files[0]);
+  } else {
+    createPost();
+  }
+
+  function createPost(){
+    posts.unshift({user: currentUser, text, image:imageUrl, video:videoUrl, likes:[], views:[], comments:[]});
+    renderPosts();
+    document.getElementById('postText').value='';
+    fileInput.value='';
+  }
+}
+
+function renderPosts(){
+  const container = document.getElementById('postsContainer');
+  container.innerHTML='';
+  posts.forEach((p,i)=>{
+    const div = document.createElement('div');
+    div.classList.add('post');
+    let imgHTML = p.image ? <img src="${p.image}" width="100%"> : '';
+    let videoHTML = p.video ? <video controls src="${p.video}" width="100%"></video> : '';
+    let profileBtn = p.user !== currentUser ? <button onclick="followUser('${p.user}')">${users[currentUser].following.includes(p.user)?'Obserwujesz':'Obserwuj'}</button> : '';
+    div.innerHTML = `<b class="user-link" onclick="viewProfile('${p.user}')">${p.user}</b> ${profileBtn}<p>${p.text}</p>${imgHTML}${videoHTML}
+    <button class="like-btn" onclick="toggleLike(${i})">${p.likes.includes(currentUser)?'❤️':'🤍'} ${p.likes.length}</button>
+    <span>👁 ${p.views.includes(currentUser)?p.views.length:p.views.push(currentUser) && p.views.length}</span>
+    <div id="comments${i}"></div>
+    <input type="text" id="commentInput${i}" placeholder="Dodaj komentarz">
+    <button onclick="addComment(${i})">Dodaj</button>`;
+    container.appendChild(div);
+    renderComments(i);
+  });
+}
+
+function toggleLike(index){
+  const p = posts[index];
+  if(!currentUser) return alert('Musisz być zalogowany');
+  if(p.likes.includes(currentUser)){
+    p.likes = p.likes.filter(u=>u!==currentUser);
+  } else {
+    p.likes.push(currentUser);
+  }
+  renderPosts();
+}
+
+function addComment(index){
+  const input = document.getElementById('commentInput'+index);
+  const text = input.value.trim();
+  if(!text || !currentUser) return;
+  posts[index].comments.push({user:currentUser,text});
+  input.value='';
+  renderComments(index);
+}
+
+function renderComments(index){
+  const div = document.getElementById('comments'+index);
+  div.innerHTML = '';
+  posts[index].comments.forEach(c=>{
+    div.innerHTML += <div class="comment"><b>${c.user}:</b> ${c.text}</div>;
+  });
+}
+
+function changeProfilePic(){
+  const input = document.getElementById('profilePicInput');
+  if(!input.files[0]) return;
+  const reader = new FileReader();
+  reader.onload = function(e){
+    users[currentUser].profilePic = e.target.result;
+    renderProfile(currentUser);
+  }
+  reader.readAsDataURL(input.files[0]);
+}
+
+function renderProfile(username){
+  viewingProfile = username;
+  document.getElementById('profileName').innerText = username;
+  document.getElementById('profilePic').src = users[username].profilePic || '';
+  document.getElementById('followersCount').innerText = users[username].followers.length;
+  document.getElementById('followingCount').innerText = users[username].following.length;
+
+  const profilePosts = document.getElementById('profilePosts');
+  profilePosts.innerHTML='';
+  posts.filter(p=>p.user===username).forEach((p,i)=>{
+    let div = document.createElement('div');
+    div.classList.add('post');
+    let imgHTML = p.image ? <img src="${p.image}" width="100%"> : '';
+    let videoHTML = p.video ? <video controls src="${p.video}" width="100%"></video> : '';
+    let profileBtn = username !== currentUser ? <button onclick="followUser('${username}')">${users[currentUser].following.includes(username)?'Obserwujesz':'Obserwuj'}</button> : '';
+    div.innerHTML = `<b class="user-link" onclick="viewProfile('${p.user}')">${p.user}</b> ${profileBtn}<p>${p.text}</p>${imgHTML}${videoHTML}
+    <button class="like-btn" onclick="toggleLike(${posts.indexOf(p)})">${p.likes.includes(currentUser)?'❤️':'🤍'} ${p.likes.length}</button>
+    <span>👁 ${p.views.includes(currentUser)?p.views.length:p.views.push(currentUser) && p.views.length}</span>
+    <div id="comments${posts.indexOf(p)}"></div>
+    <input type="text" id="commentInput${posts.indexOf(p)}" placeholder="Dodaj komentarz">
+    <button onclick="addComment(${posts.indexOf(p)})">Dodaj</button>`;
+    profilePosts.appendChild(div);
+    renderComments(posts.indexOf(p));
+  });
+}
+
+function followUser(username){
+  if(!currentUser || username===currentUser) return;
+  if(users[currentUser].following.includes(username)){
+    users[currentUser].following = users[currentUser].following.filter(u=>u!==username);
+    users[username].followers = users[username].followers.filter(u=>u!==currentUser);
+  } else {
+    users[currentUser].following.push(username);
+    users[username].followers.push(currentUser);
+  }
+  renderProfile(viewingProfile);
+  renderPosts();
+}
+
+function viewProfile(username){
+  viewingProfile = username;
+  showTab('profileTab');
+}
+
+function toggleFollowers(){
+  document.getElementById('followersList').classList.toggle('hidden');
+  const list = document.getElementById('followersList');
+  list.innerHTML='';
+  users[viewingProfile].followers.forEach(u=>{
+    list.innerHTML += <li class="user-link" onclick="viewProfile('${u}')">${u}</li>;
+  });
+}
+
+function toggleFollowing(){
+  document.getElementById('followingList').classList.toggle('hidden');
+  const list = document.getElementById('followingList');
+  list.innerHTML='';
+  users[viewingProfile].following.forEach(u=>{
+    list.innerHTML += <li class="user-link" onclick="viewProfile('${u}')">${u}</li>;
+  });
+}
+
+function searchUsers(){
+  const val = document.getElementById('searchInput').value.toLowerCase();
+  const matches = Object.keys(users).filter(u=>u.toLowerCase().includes(val));
+  if(matches.length>0) alert('Znaleziono użytkowników: '+matches.join(', '));
+}
+</script>
+
+</body>
+</html>
